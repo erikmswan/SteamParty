@@ -10,13 +10,14 @@ import sys
 from colorama import Fore, Style
 from time import sleep
 
+
 class SteamGrabber:
     """Interface for fetching user/application data from the Steam servers"""
     def __init__(self):
         # Format: appid : name
         self._games = {}
         self._profile_template = "http://steamcommunity.com/{}/{}/games/?tab=all"
-        self._app_template = "http://store.steampowered.com/api/appdetails?appids={}"
+        self._app_template = "https://store.steampowered.com/api/appdetails?appids={}"
         self._content_rx = re.compile(r"var rgGames[ ]*=[ ]*(\[.+\])")
 
         # If a game cache exists try to load it
@@ -42,15 +43,16 @@ class SteamGrabber:
         """
         try:
             res = requests.get(url)
+            logging.info(url)
         except:
-            logging.exception("Failed to fetch data")
+            logging.exception("Failed to fetch data", url)
             return None
 
         if res.status_code == 200:
             return str(res.content, encoding="utf-8")
         else:
-            logging.error("Check your connection (status code: {})".format(
-                res.status_code))
+            logging.error("Check your connection (status code: {}) {}".format(
+                res.status_code, url))
 
         return None
 
@@ -84,7 +86,7 @@ class SteamGrabber:
             logging.exception("Failed to parse JSON data")
             return False
 
-        if not appid in jdata:
+        if appid not in jdata:
             logging.debug("Received response with invalid appid")
             return False
 
@@ -97,9 +99,11 @@ class SteamGrabber:
         self._games[appid]["is_free"] = game["is_free"]
         self._games[appid]["platforms"] = game["platforms"]
         # Category ID 9 - Co-op
-        self._games[appid]["coop"] = any(x["id"] == 9 for x in game["categories"])
+        if game.get("categories") != None:
+            self._games[appid]["coop"] = any(x["id"] == 9 for x in game["categories"])
         # Category ID 1 - Multiplayer
-        self._games[appid]["mp"] = any(x["id"] == 1 for x in game["categories"])
+        if game.get("mp") != None:
+            self._games[appid]["mp"] = any(x["id"] == 1 for x in game["categories"])
 
         return True
 
@@ -154,7 +158,7 @@ class SteamGrabber:
         if match is None:
             logging.error("Failed to parse response data")
             logging.warn("This may be caused by your profile privacy settings "
-                    "(Game details is set to Private/Friends Only)")
+                         "(Game details is set to Private/Friends Only)")
             logging.debug(data)
             return None
 
@@ -186,20 +190,21 @@ class SteamGrabber:
 
         return set(games)
 
+
 if __name__ == "__main__":
     colorama.init()
 
     # Setup logging
     logging.basicConfig(level=logging.INFO,
-            format="%(asctime)-14s [%(module)s/%(funcName)s] %(levelname)s: %(message)s")
+                        format="%(asctime)-14s [%(module)s/%(funcName)s] %(levelname)s: %(message)s")
     logging.addLevelName(logging.INFO, "{}{}{}".format(Fore.GREEN,
-                    logging.getLevelName(logging.INFO), Style.RESET_ALL))
+                         logging.getLevelName(logging.INFO), Style.RESET_ALL))
     logging.addLevelName(logging.WARNING, "{}{}{}".format(Fore.YELLOW,
-                    logging.getLevelName(logging.WARNING), Style.RESET_ALL))
+                         logging.getLevelName(logging.WARNING), Style.RESET_ALL))
     logging.addLevelName(logging.ERROR, "{}{}{}".format(Fore.RED,
-                    logging.getLevelName(logging.ERROR), Style.RESET_ALL))
+                         logging.getLevelName(logging.ERROR), Style.RESET_ALL))
     logging.addLevelName(logging.CRITICAL, "{}{}{}".format(Fore.MAGENTA,
-                    logging.getLevelName(logging.CRITICAL), Style.RESET_ALL))
+                         logging.getLevelName(logging.CRITICAL), Style.RESET_ALL))
 
     if len(sys.argv[1:]) == 0:
         print("Usage: {} steam_id steam_id2 ...".format(sys.argv[0]))
@@ -224,9 +229,14 @@ if __name__ == "__main__":
     common = set.intersection(*users.values())
 
     # Simple lambdas for colored text (used for yes/no flags)
-    red = lambda x: "{}{:3}{}".format(Fore.RED, x, Style.RESET_ALL)
-    green = lambda x: "{}{:3}{}".format(Fore.GREEN, x, Style.RESET_ALL)
-    decide = lambda x: green("yes") if x else red("no")
+    def red(x):
+        return "{}{:3}{}".format(Fore.RED, x, Style.RESET_ALL)
+
+    def green(x):
+        return "{}{:3}{}".format(Fore.GREEN, x, Style.RESET_ALL)
+
+    def decide(x):
+        return green("yes") if x else red("no")
 
     for appid in sorted(common):
         game = grabber.get_game_info(appid)
@@ -240,8 +250,8 @@ if __name__ == "__main__":
                     decide(game["platforms"]["linux"]),
                     decide(game["platforms"]["mac"]),
                     decide(game["is_free"]),
-                    decide(game["mp"]),
-                    decide(game["coop"]),
+                    decide(game.get("mp")),
+                    decide(game.get("coop")),
                     game["name"]))
         except:
             logging.exception("Failed to print game data")
